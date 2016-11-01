@@ -14,6 +14,8 @@ from collections import MutableMapping
 from deepdiff.helper import py3
 from deepdiff.contenthash import DeepHash
 
+from hamcrest.core.matcher import Matcher
+
 if py3:  # pragma: no cover
     from builtins import int
     strings = (str, bytes)  # which are both basestring
@@ -33,14 +35,14 @@ IndexedHash = namedtuple('IndexedHash', 'indexes item')
 EXPANDED_KEY_MAP = {  # pragma: no cover
     'dic_item_added': 'dictionary_item_added',
     'dic_item_removed': 'dictionary_item_removed',
-    'newindexes': 'new_indexes',
-    'newrepeat': 'new_repeat',
-    'newtype': 'new_type',
-    'newvalue': 'new_value',
-    'oldindexes': 'old_indexes',
-    'oldrepeat': 'old_repeat',
-    'oldtype': 'old_type',
-    'oldvalue': 'old_value'}
+    'newindexes': 'actual_indexes',
+    'newrepeat': 'actual_repeat',
+    'newtype': 'actual_type',
+    'newvalue': 'actual_value',
+    'oldindexes': 'expected_indexes',
+    'oldrepeat': 'expected_repeat',
+    'oldtype': 'expected_type',
+    'oldvalue': 'expected_value'}
 
 
 WARNING_NUM = 0
@@ -544,9 +546,9 @@ class DeepDiff(RemapDict):
             if diff:
                 diff = '\n'.join(diff)
                 self["values_changed"][parent] = RemapDict(
-                    old_value=t1, new_value=t2, diff=diff)
+                    expected_value=t1, actual_value=t2, diff=diff)
         elif t1 != t2:
-            self["values_changed"][parent] = RemapDict(old_value=t1, new_value=t2)
+            self["values_changed"][parent] = RemapDict(expected_value=t1, actual_value=t2)
 
     def __diff_tuple(self, t1, t2, parent, parents_ids):
         # Checking to see if it has _fields. Which probably means it is a named
@@ -647,18 +649,23 @@ class DeepDiff(RemapDict):
             t2_s = ("{:.%sf}" % self.significant_digits).format(t2)
             if t1_s != t2_s:
                 self["values_changed"][parent] = RemapDict(
-                    old_value=t1, new_value=t2)
+                    expected_value=t1, actual_value=t2)
         else:
             if t1 != t2:
                 self["values_changed"][parent] = RemapDict(
-                    old_value=t1, new_value=t2)
+                    expected_value=t1, actual_value=t2)
 
     def __diff_types(self, t1, t2, parent):
         """Diff types"""
 
-        self["type_changes"][parent] = RemapDict(old_type=type(t1), new_type=type(t2))
+        self["type_changes"][parent] = RemapDict(expected_type=type(t1), actual_type=type(t2))
         if self.verbose_level:
-            self["type_changes"][parent].update(old_value=t1, new_value=t2)
+            self["type_changes"][parent].update(expected_value=t1, actual_value=t2)
+
+    def __diff_matchers(self, t1, t2, parent):
+        """Compare hamcrest Matchers"""
+        if not t1.matches(t2):
+            self["values_changed"][parent] = RemapDict(expected_value=str(t1), actual_value=t2)
 
     def __diff(self, t1, t2, parent="root", parents_ids=frozenset({})):
         """The main diff method"""
@@ -669,7 +676,10 @@ class DeepDiff(RemapDict):
         if self.__skip_this(t1, t2, parent):
             return
 
-        if type(t1) != type(t2):
+        if isinstance(t1, Matcher):
+            self.__diff_matchers(t1, t2, parent)
+
+        elif type(t1) != type(t2):
             self.__diff_types(t1, t2, parent)
 
         elif isinstance(t1, strings):
